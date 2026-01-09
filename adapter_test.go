@@ -56,11 +56,11 @@ func createCasbinPolicyCR(name, namespace, ptype string, rules [][]string) *unst
 			},
 		},
 	}
-	
+
 	if namespace != "" {
 		cr.Object["metadata"].(map[string]interface{})["namespace"] = namespace
 	}
-	
+
 	rulesList := []interface{}{}
 	for _, rule := range rules {
 		// Convert []string to []interface{} for deep copy compatibility
@@ -73,13 +73,13 @@ func createCasbinPolicyCR(name, namespace, ptype string, rules [][]string) *unst
 		})
 	}
 	cr.Object["spec"].(map[string]interface{})["rules"] = rulesList
-	
+
 	return cr
 }
 
 func TestNewAdapterWithClient(t *testing.T) {
 	client := createFakeClient()
-	
+
 	adapter := NewAdapterWithClient(client, "default")
 	if adapter == nil {
 		t.Fatal("adapter should not be nil")
@@ -95,35 +95,35 @@ func TestLoadPolicyNamespaceScoped(t *testing.T) {
 		{"alice", "data1", "read"},
 		{"bob", "data2", "write"},
 	})
-	
+
 	cr2 := createCasbinPolicyCR("policy2", "default", "g", [][]string{
 		{"alice", "admin"},
 	})
-	
+
 	client := createFakeClient(cr1, cr2)
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	e, err := casbin.NewEnforcer("testdata/rbac_model.conf", adapter)
 	if err != nil {
 		t.Fatalf("failed to create enforcer: %v", err)
 	}
-	
+
 	// Check loaded policies
 	policies, err := e.GetPolicy()
 	if err != nil {
 		t.Fatalf("failed to get policies: %v", err)
 	}
-	
+
 	if len(policies) != 2 {
 		t.Errorf("expected 2 policies, got %d", len(policies))
 	}
-	
+
 	// Check grouping policies
 	grouping, err := e.GetGroupingPolicy()
 	if err != nil {
 		t.Fatalf("failed to get grouping policies: %v", err)
 	}
-	
+
 	if len(grouping) != 1 {
 		t.Errorf("expected 1 grouping policy, got %d", len(grouping))
 	}
@@ -134,20 +134,20 @@ func TestLoadPolicyClusterScoped(t *testing.T) {
 	cr1 := createCasbinPolicyCR("cluster-policy1", "", "p", [][]string{
 		{"alice", "data1", "read"},
 	})
-	
+
 	client := createFakeClient(cr1)
 	adapter := NewAdapterWithClient(client, "")
-	
+
 	e, err := casbin.NewEnforcer("testdata/rbac_model.conf", adapter)
 	if err != nil {
 		t.Fatalf("failed to create enforcer: %v", err)
 	}
-	
+
 	policies, err := e.GetPolicy()
 	if err != nil {
 		t.Fatalf("failed to get policies: %v", err)
 	}
-	
+
 	if len(policies) != 1 {
 		t.Errorf("expected 1 policy, got %d", len(policies))
 	}
@@ -159,25 +159,25 @@ func TestLoadPolicyDuplicateHandling(t *testing.T) {
 		{"alice", "data1", "read"},
 		{"bob", "data2", "write"},
 	})
-	
+
 	cr2 := createCasbinPolicyCR("policy2", "default", "p", [][]string{
 		{"alice", "data1", "read"}, // duplicate
 		{"charlie", "data3", "read"},
 	})
-	
+
 	client := createFakeClient(cr1, cr2)
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	e, err := casbin.NewEnforcer("testdata/rbac_model.conf", adapter)
 	if err != nil {
 		t.Fatalf("failed to create enforcer: %v", err)
 	}
-	
+
 	policies, err := e.GetPolicy()
 	if err != nil {
 		t.Fatalf("failed to get policies: %v", err)
 	}
-	
+
 	// Should only have 3 unique policies
 	if len(policies) != 3 {
 		t.Errorf("expected 3 unique policies, got %d", len(policies))
@@ -188,45 +188,45 @@ func TestLoadPolicyDeterministicOrdering(t *testing.T) {
 	cr1 := createCasbinPolicyCR("zpolicy", "ns2", "p", [][]string{
 		{"user1", "res1", "read"},
 	})
-	
+
 	cr2 := createCasbinPolicyCR("apolicy", "ns1", "p", [][]string{
 		{"user2", "res2", "write"},
 	})
-	
+
 	cr3 := createCasbinPolicyCR("bpolicy", "ns1", "p", [][]string{
 		{"user3", "res3", "read"},
 	})
-	
+
 	client := createFakeClient(cr1, cr2, cr3)
 	adapter := NewAdapterWithClient(client, "")
-	
+
 	// Load multiple times and check consistency
 	for i := 0; i < 5; i++ {
 		e, err := casbin.NewEnforcer("testdata/rbac_model.conf", adapter)
 		if err != nil {
 			t.Fatalf("failed to create enforcer: %v", err)
 		}
-		
+
 		policies, err := e.GetPolicy()
 		if err != nil {
 			t.Fatalf("failed to get policies: %v", err)
 		}
-		
+
 		// Policies should be ordered by namespace, then name
 		if len(policies) != 3 {
 			t.Errorf("expected 3 policies, got %d", len(policies))
 		}
-		
+
 		// First should be from ns1/apolicy
 		if policies[0][0] != "user2" {
 			t.Errorf("ordering incorrect: first policy should be user2, got %s", policies[0][0])
 		}
-		
+
 		// Second should be from ns1/bpolicy
 		if policies[1][0] != "user3" {
 			t.Errorf("ordering incorrect: second policy should be user3, got %s", policies[1][0])
 		}
-		
+
 		// Third should be from ns2/zpolicy
 		if policies[2][0] != "user1" {
 			t.Errorf("ordering incorrect: third policy should be user1, got %s", policies[2][0])
@@ -237,12 +237,12 @@ func TestLoadPolicyDeterministicOrdering(t *testing.T) {
 func TestSavePolicyNotSupported(t *testing.T) {
 	client := createFakeClient()
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	e, err := casbin.NewEnforcer("testdata/rbac_model.conf", adapter)
 	if err != nil {
 		t.Fatalf("failed to create enforcer: %v", err)
 	}
-	
+
 	err = e.SavePolicy()
 	if err != ErrWriteNotSupported {
 		t.Errorf("expected ErrWriteNotSupported, got %v", err)
@@ -252,7 +252,7 @@ func TestSavePolicyNotSupported(t *testing.T) {
 func TestAddPolicyNotSupported(t *testing.T) {
 	client := createFakeClient()
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	err := adapter.AddPolicy("p", "p", []string{"alice", "data1", "read"})
 	if err != ErrWriteNotSupported {
 		t.Errorf("expected ErrWriteNotSupported, got %v", err)
@@ -262,7 +262,7 @@ func TestAddPolicyNotSupported(t *testing.T) {
 func TestRemovePolicyNotSupported(t *testing.T) {
 	client := createFakeClient()
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	err := adapter.RemovePolicy("p", "p", []string{"alice", "data1", "read"})
 	if err != ErrWriteNotSupported {
 		t.Errorf("expected ErrWriteNotSupported, got %v", err)
@@ -272,7 +272,7 @@ func TestRemovePolicyNotSupported(t *testing.T) {
 func TestRemoveFilteredPolicyNotSupported(t *testing.T) {
 	client := createFakeClient()
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	err := adapter.RemoveFilteredPolicy("p", "p", 0, "alice")
 	if err != ErrWriteNotSupported {
 		t.Errorf("expected ErrWriteNotSupported, got %v", err)
@@ -282,17 +282,17 @@ func TestRemoveFilteredPolicyNotSupported(t *testing.T) {
 func TestEmptyPolicies(t *testing.T) {
 	client := createFakeClient()
 	adapter := NewAdapterWithClient(client, "default")
-	
+
 	e, err := casbin.NewEnforcer("testdata/rbac_model.conf", adapter)
 	if err != nil {
 		t.Fatalf("failed to create enforcer: %v", err)
 	}
-	
+
 	policies, err := e.GetPolicy()
 	if err != nil {
 		t.Fatalf("failed to get policies: %v", err)
 	}
-	
+
 	if len(policies) != 0 {
 		t.Errorf("expected 0 policies, got %d", len(policies))
 	}

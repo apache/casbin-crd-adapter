@@ -43,8 +43,8 @@ var CasbinPolicyGVR = schema.GroupVersionResource{
 
 // Adapter represents the Kubernetes CRD adapter for policy storage
 type Adapter struct {
-	client    dynamic.Interface
-	namespace string
+	client     dynamic.Interface
+	namespace  string
 	isFiltered bool
 }
 
@@ -86,10 +86,10 @@ func NewAdapterWithClient(client dynamic.Interface, namespace string) *Adapter {
 // LoadPolicy loads all policy rules from Kubernetes CRDs
 func (a *Adapter) LoadPolicy(model model.Model) error {
 	ctx := context.Background()
-	
+
 	var list *unstructured.UnstructuredList
 	var err error
-	
+
 	if a.namespace != "" {
 		// Namespace-scoped
 		list, err = a.client.Resource(CasbinPolicyGVR).Namespace(a.namespace).List(ctx, metav1.ListOptions{})
@@ -97,41 +97,41 @@ func (a *Adapter) LoadPolicy(model model.Model) error {
 		// Cluster-scoped
 		list, err = a.client.Resource(CasbinPolicyGVR).List(ctx, metav1.ListOptions{})
 	}
-	
+
 	if err != nil {
 		return err
 	}
 
 	// Collect all policy lines
 	var policyLines []policyLine
-	
+
 	for _, item := range list.Items {
 		spec, found, err := unstructured.NestedMap(item.Object, "spec")
 		if err != nil || !found {
 			continue
 		}
-		
+
 		// Get policy type (p or g)
 		ptype, _, _ := unstructured.NestedString(spec, "policyType")
 		if ptype == "" {
 			ptype = "p" // default to permission policy
 		}
-		
+
 		// Get rules array
 		rules, _, _ := unstructured.NestedSlice(spec, "rules")
-		
+
 		for _, rule := range rules {
 			ruleMap, ok := rule.(map[string]interface{})
 			if !ok {
 				continue
 			}
-			
+
 			// Extract rule fields
 			var ruleFields []string
 			if vals, found, _ := unstructured.NestedStringSlice(ruleMap, "values"); found {
 				ruleFields = vals
 			}
-			
+
 			if len(ruleFields) > 0 {
 				policyLines = append(policyLines, policyLine{
 					ptype:  ptype,
@@ -143,7 +143,7 @@ func (a *Adapter) LoadPolicy(model model.Model) error {
 			}
 		}
 	}
-	
+
 	// Sort for deterministic ordering
 	sort.Slice(policyLines, func(i, j int) bool {
 		// First by namespace
@@ -166,7 +166,7 @@ func (a *Adapter) LoadPolicy(model model.Model) error {
 		}
 		return len(policyLines[i].values) < len(policyLines[j].values)
 	})
-	
+
 	// Remove duplicates while maintaining order
 	seen := make(map[string]bool)
 	for _, line := range policyLines {
@@ -174,20 +174,20 @@ func (a *Adapter) LoadPolicy(model model.Model) error {
 		for _, v := range line.values {
 			key += ":" + v
 		}
-		
+
 		if !seen[key] {
 			seen[key] = true
 			// Build the policy array for Casbin
 			p := make([]string, len(line.values)+1)
 			p[0] = line.ptype
 			copy(p[1:], line.values)
-			
+
 			if err := persist.LoadPolicyArray(p, model); err != nil {
 				return err
 			}
 		}
 	}
-	
+
 	return nil
 }
 

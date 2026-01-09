@@ -1,0 +1,1 @@
+# casbin-crd-adapter

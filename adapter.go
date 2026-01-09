@@ -43,9 +43,8 @@ var CasbinPolicyGVR = schema.GroupVersionResource{
 
 // Adapter represents the Kubernetes CRD adapter for policy storage
 type Adapter struct {
-	client     dynamic.Interface
-	namespace  string
-	isFiltered bool
+	client    dynamic.Interface
+	namespace string
 }
 
 // NewAdapter creates a new CRD adapter

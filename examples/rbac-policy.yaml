@@ -1,0 +1,41 @@
+apiVersion: casbin.org/v1alpha1
+kind: CasbinPolicy
+metadata:
+  name: rbac-policy
+  namespace: default
+spec:
+  # Permission rules: who can do what
+  policyRules:
+    # Admin role permissions
+    - ptype: p
+      rule: ["admin", "data1", "read"]
+    - ptype: p
+      rule: ["admin", "data1", "write"]
+    - ptype: p
+      rule: ["admin", "data2", "read"]
+    - ptype: p
+      rule: ["admin", "data2", "write"]
+    
+    # User role permissions
+    - ptype: p
+      rule: ["user", "data1", "read"]
+    - ptype: p
+      rule: ["user", "data2", "read"]
+    
+    # Guest role permissions
+    - ptype: p
+      rule: ["guest", "data1", "read"]
+  
+  # Grouping rules: role assignments
+  groupingRules:
+    # Alice is an admin
+    - ptype: g
+      rule: ["alice", "admin"]
+    
+    # Bob is a regular user
+    - ptype: g
+      rule: ["bob", "user"]
+    
+    # Charlie is a guest
+    - ptype: g
+      rule: ["charlie", "guest"]

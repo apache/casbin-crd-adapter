@@ -32,13 +32,8 @@ func createFakeClient(objects ...runtime.Object) dynamic.Interface {
 		Version:  "v1alpha1",
 		Resource: "casbinpolicies",
 	}
-	gvk := schema.GroupVersionKind{
-		Group:   "casbin.org",
-		Version: "v1alpha1",
-		Kind:    "CasbinPolicyList",
-	}
 	return fake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{
-		gvr: gvk.Kind,
+		gvr: "CasbinPolicyList",
 	}, objects...)
 }
 

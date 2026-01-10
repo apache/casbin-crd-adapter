@@ -1,0 +1,24 @@
+apiVersion: casbin.org/v1alpha1
+kind: CasbinPolicy
+metadata:
+  name: example-permissions
+  namespace: default
+spec:
+  policyType: p
+  rules:
+    - values: ["alice", "data1", "read"]
+    - values: ["alice", "data1", "write"]
+    - values: ["bob", "data2", "write"]
+    - values: ["data2_admin", "data2", "read"]
+    - values: ["data2_admin", "data2", "write"]
+---
+apiVersion: casbin.org/v1alpha1
+kind: CasbinPolicy
+metadata:
+  name: example-roles
+  namespace: default
+spec:
+  policyType: g
+  rules:
+    - values: ["alice", "admin"]
+    - values: ["bob", "developer"]

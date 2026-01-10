@@ -84,24 +84,31 @@ func NewAdapterWithClient(client dynamic.Interface, namespace string) *Adapter {
 
 // LoadPolicy loads all policy rules from Kubernetes CRDs
 func (a *Adapter) LoadPolicy(model model.Model) error {
-	ctx := context.Background()
-
-	var list *unstructured.UnstructuredList
-	var err error
-
-	if a.namespace != "" {
-		// Namespace-scoped
-		list, err = a.client.Resource(CasbinPolicyGVR).Namespace(a.namespace).List(ctx, metav1.ListOptions{})
-	} else {
-		// Cluster-scoped
-		list, err = a.client.Resource(CasbinPolicyGVR).List(ctx, metav1.ListOptions{})
-	}
-
+	list, err := a.fetchPolicies()
 	if err != nil {
 		return err
 	}
 
-	// Collect all policy lines
+	policyLines := a.parsePolicyLines(list)
+	sortPolicyLines(policyLines)
+
+	return a.loadPolicyLines(policyLines, model)
+}
+
+// fetchPolicies retrieves policy CRs from Kubernetes
+func (a *Adapter) fetchPolicies() (*unstructured.UnstructuredList, error) {
+	ctx := context.Background()
+
+	if a.namespace != "" {
+		// Namespace-scoped
+		return a.client.Resource(CasbinPolicyGVR).Namespace(a.namespace).List(ctx, metav1.ListOptions{})
+	}
+	// Cluster-scoped
+	return a.client.Resource(CasbinPolicyGVR).List(ctx, metav1.ListOptions{})
+}
+
+// parsePolicyLines extracts policy lines from unstructured CRs
+func (a *Adapter) parsePolicyLines(list *unstructured.UnstructuredList) []policyLine {
 	var policyLines []policyLine
 
 	for _, item := range list.Items {
@@ -110,84 +117,120 @@ func (a *Adapter) LoadPolicy(model model.Model) error {
 			continue
 		}
 
-		// Get policy type (p or g)
-		ptype, _, _ := unstructured.NestedString(spec, "policyType")
-		if ptype == "" {
-			ptype = "p" // default to permission policy
-		}
-
-		// Get rules array
+		ptype := a.getPolicyType(spec)
 		rules, _, _ := unstructured.NestedSlice(spec, "rules")
 
 		for _, rule := range rules {
-			ruleMap, ok := rule.(map[string]interface{})
-			if !ok {
-				continue
-			}
-
-			// Extract rule fields
-			var ruleFields []string
-			if vals, found, _ := unstructured.NestedStringSlice(ruleMap, "values"); found {
-				ruleFields = vals
-			}
-
-			if len(ruleFields) > 0 {
-				policyLines = append(policyLines, policyLine{
-					ptype:  ptype,
-					values: ruleFields,
-					// For deterministic ordering
-					name:      item.GetName(),
-					namespace: item.GetNamespace(),
-				})
+			if line := a.parsePolicyRule(rule, ptype, item.GetName(), item.GetNamespace()); line != nil {
+				policyLines = append(policyLines, *line)
 			}
 		}
 	}
 
-	// Sort for deterministic ordering
-	sort.Slice(policyLines, func(i, j int) bool {
-		// First by namespace
-		if policyLines[i].namespace != policyLines[j].namespace {
-			return policyLines[i].namespace < policyLines[j].namespace
-		}
-		// Then by name
-		if policyLines[i].name != policyLines[j].name {
-			return policyLines[i].name < policyLines[j].name
-		}
-		// Then by ptype
-		if policyLines[i].ptype != policyLines[j].ptype {
-			return policyLines[i].ptype < policyLines[j].ptype
-		}
-		// Then by values
-		for k := 0; k < len(policyLines[i].values) && k < len(policyLines[j].values); k++ {
-			if policyLines[i].values[k] != policyLines[j].values[k] {
-				return policyLines[i].values[k] < policyLines[j].values[k]
-			}
-		}
-		return len(policyLines[i].values) < len(policyLines[j].values)
-	})
+	return policyLines
+}
 
-	// Remove duplicates while maintaining order
-	seen := make(map[string]bool)
-	for _, line := range policyLines {
-		key := line.ptype
-		for _, v := range line.values {
-			key += ":" + v
+// getPolicyType extracts and validates the policy type
+func (a *Adapter) getPolicyType(spec map[string]interface{}) string {
+	ptype, _, _ := unstructured.NestedString(spec, "policyType")
+	if ptype == "" {
+		ptype = "p" // default to permission policy
+	}
+	return ptype
+}
+
+// parsePolicyRule parses a single policy rule
+func (a *Adapter) parsePolicyRule(rule interface{}, ptype, name, namespace string) *policyLine {
+	ruleMap, ok := rule.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	ruleFields, found, _ := unstructured.NestedStringSlice(ruleMap, "values")
+	if !found || len(ruleFields) == 0 {
+		return nil
+	}
+
+	return &policyLine{
+		ptype:     ptype,
+		values:    ruleFields,
+		name:      name,
+		namespace: namespace,
+	}
+}
+
+// sortPolicyLines sorts policy lines for deterministic ordering
+func sortPolicyLines(policyLines []policyLine) {
+	sort.Slice(policyLines, func(i, j int) bool {
+		return comparePolicyLines(policyLines[i], policyLines[j])
+	})
+}
+
+// comparePolicyLines compares two policy lines for sorting
+func comparePolicyLines(a, b policyLine) bool {
+	// First by namespace
+	if a.namespace != b.namespace {
+		return a.namespace < b.namespace
+	}
+	// Then by name
+	if a.name != b.name {
+		return a.name < b.name
+	}
+	// Then by ptype
+	if a.ptype != b.ptype {
+		return a.ptype < b.ptype
+	}
+	// Then by values
+	return compareStringSlices(a.values, b.values)
+}
+
+// compareStringSlices compares two string slices lexicographically
+func compareStringSlices(a, b []string) bool {
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+	for k := 0; k < minLen; k++ {
+		if a[k] != b[k] {
+			return a[k] < b[k]
 		}
+	}
+	return len(a) < len(b)
+}
+
+// loadPolicyLines loads deduplicated policy lines into the model
+func (a *Adapter) loadPolicyLines(policyLines []policyLine, model model.Model) error {
+	seen := make(map[string]bool)
+
+	for _, line := range policyLines {
+		key := buildPolicyKey(line)
 
 		if !seen[key] {
 			seen[key] = true
-			// Build the policy array for Casbin
-			p := make([]string, len(line.values)+1)
-			p[0] = line.ptype
-			copy(p[1:], line.values)
-
-			if err := persist.LoadPolicyArray(p, model); err != nil {
+			if err := a.loadSinglePolicy(line, model); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+// buildPolicyKey creates a unique key for deduplication
+func buildPolicyKey(line policyLine) string {
+	key := line.ptype
+	for _, v := range line.values {
+		key += ":" + v
+	}
+	return key
+}
+
+// loadSinglePolicy loads a single policy into the model
+func (a *Adapter) loadSinglePolicy(line policyLine, model model.Model) error {
+	p := make([]string, len(line.values)+1)
+	p[0] = line.ptype
+	copy(p[1:], line.values)
+	return persist.LoadPolicyArray(p, model)
 }
 
 // SavePolicy is not supported in read-only CRD adapter
